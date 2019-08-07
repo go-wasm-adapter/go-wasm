@@ -7,12 +7,17 @@ import (
 	"syscall/js"
 )
 
-func printWasm(v []js.Value) {
+func printWasm(this js.Value, v []js.Value) interface{} {
 	fmt.Println("Hello from WASM", v)
+	return nil
 }
 
 func main() {
-	js.Global().Set("printWasm", js.NewCallback(printWasm))
+	c := make(chan struct{}, 0)
+	fmt.Println("WASM Go Initialized")
+
+	// register functions
+	js.Global().Set("printWasm", js.FuncOf(printWasm))
 	fmt.Println("Done...")
-	<-make(chan struct{})
+	<-c
 }

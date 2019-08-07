@@ -22,11 +22,16 @@ extern void valueNew(void *context, int32_t a);
 extern void valueLength(void *context, int32_t a);
 extern void valuePrepareString(void *context, int32_t a);
 extern void valueLoadString(void *context, int32_t a);
+extern void scheduleTimeoutEvent(void *context, int32_t a);
+extern void clearTimeoutEvent(void *context, int32_t a);
 */
 import "C"
 import (
+	"crypto/rand"
+	"encoding/binary"
 	"fmt"
 	"log"
+	"time"
 	"unsafe"
 
 	"github.com/wasmerio/go-ext-wasm/wasmer"
@@ -39,17 +44,21 @@ func debug(ctx unsafe.Pointer, a int32) {
 
 //export wexit
 func wexit(ctx unsafe.Pointer, a int32) {
-	fmt.Println("wasm exit")
+	Bridge.vmExit = true
+	mem := Bridge.mem()
+	Bridge.exitCode = int(binary.LittleEndian.Uint32(mem[a+8:]))
+	fmt.Println("Wasm exited with code", Bridge.exitCode)
 }
 
 //export wwrite
 func wwrite(ctx unsafe.Pointer, a int32) {
-	fmt.Println("wasm write")
+	fmt.Println("wasm write", a)
 }
 
 //export nanotime
 func nanotime(ctx unsafe.Pointer, a int32) {
-	fmt.Println("nano time")
+	n := time.Now().UnixNano()
+	Bridge.setInt64(a+8, n)
 }
 
 //export walltime
@@ -69,7 +78,11 @@ func clearScheduledCallback(ctx unsafe.Pointer, a int32) {
 
 //export getRandomData
 func getRandomData(ctx unsafe.Pointer, a int32) {
-	fmt.Println("getRandomData")
+	s := Bridge.loadSlice(a + 8)
+	_, err := rand.Read(s)
+	if err != nil {
+		fmt.Println("failed: getRandomData", err)
+	}
 }
 
 //export stringVal
@@ -79,7 +92,8 @@ func stringVal(ctx unsafe.Pointer, a int32) {
 
 //export valueGet
 func valueGet(ctx unsafe.Pointer, a int32) {
-	fmt.Println("valueGet")
+	str := Bridge.loadString(a + 16)
+	fmt.Println("valueGet", str)
 }
 
 //export valueSet
@@ -127,9 +141,19 @@ func valueLoadString(ctx unsafe.Pointer, a int32) {
 	fmt.Println("valueLoadString")
 }
 
-// Imports returns wasm go specific imports
-func Imports() (*wasmer.Imports, error) {
-	imps := wasmer.NewImports().Namespace("go")
+//export scheduleTimeoutEvent
+func scheduleTimeoutEvent(ctx unsafe.Pointer, a int32) {
+	fmt.Println("scheduleTimeoutEvent")
+}
+
+//export clearTimeoutEvent
+func clearTimeoutEvent(ctx unsafe.Pointer, a int32) {
+	fmt.Println("clearTimeoutEvent")
+}
+
+// addImports adds go bridge imports in "go" namespace.
+func (b *bridge) addImports(imps *wasmer.Imports) error {
+	imps = imps.Namespace("go")
 	var is = []struct {
 		name string
 		imp  interface{}
@@ -143,6 +167,8 @@ func Imports() (*wasmer.Imports, error) {
 		{"runtime.scheduleCallback", scheduleCallback, C.scheduleCallback},
 		{"runtime.clearScheduledCallback", clearScheduledCallback, C.clearScheduledCallback},
 		{"runtime.getRandomData", getRandomData, C.getRandomData},
+		{"runtime.scheduleTimeoutEvent", scheduleTimeoutEvent, C.scheduleTimeoutEvent},
+		{"runtime.clearTimeoutEvent", clearTimeoutEvent, C.clearTimeoutEvent},
 		{"syscall/js.stringVal", stringVal, C.stringVal},
 		{"syscall/js.valueGet", valueGet, C.valueGet},
 		{"syscall/js.valueSet", valueSet, C.valueSet},
@@ -160,9 +186,9 @@ func Imports() (*wasmer.Imports, error) {
 	for _, imp := range is {
 		imps, err = imps.Append(imp.name, imp.imp, imp.cgo)
 		if err != nil {
-			return nil, err
+			return err
 		}
 	}
 
-	return imps, nil
+	return nil
 }
