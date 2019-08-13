@@ -7,12 +7,13 @@ import (
 )
 
 func main() {
-	err := wasmgo.Bridge.InitWASM("./simple/prog/main.wasm", nil)
+	b := wasmgo.Bridge{}
+	err := b.InitWASM("test", "./simple/prog/main.wasm", nil)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	if err := wasmgo.Bridge.Run(); err != nil {
+	if err := b.Run(); err != nil {
 		log.Fatal(err)
 	}
 }

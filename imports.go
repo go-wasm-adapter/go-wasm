@@ -38,47 +38,47 @@ import (
 )
 
 //export debug
-func debug(ctx unsafe.Pointer, a int32) {
-	log.Println(a)
+func debug(ctx unsafe.Pointer, sp int32) {
+	log.Println(sp)
 }
 
 //export wexit
-func wexit(ctx unsafe.Pointer, a int32) {
-	Bridge.vmExit = true
-	mem := Bridge.mem()
-	Bridge.exitCode = int(binary.LittleEndian.Uint32(mem[a+8:]))
-	fmt.Println("Wasm exited with code", Bridge.exitCode)
+func wexit(ctx unsafe.Pointer, sp int32) {
+	b := getBridge(ctx)
+	b.vmExit = true
+	mem := b.mem()
+	b.exitCode = int(binary.LittleEndian.Uint32(mem[sp+8:]))
 }
 
 //export wwrite
-func wwrite(ctx unsafe.Pointer, a int32) {
-	fmt.Println("wasm write", a)
+func wwrite(ctx unsafe.Pointer, sp int32) {
+	fmt.Println("wasm write", sp)
 }
 
 //export nanotime
-func nanotime(ctx unsafe.Pointer, a int32) {
+func nanotime(ctx unsafe.Pointer, sp int32) {
 	n := time.Now().UnixNano()
-	Bridge.setInt64(a+8, n)
+	getBridge(ctx).setInt64(sp+8, n)
 }
 
 //export walltime
-func walltime(ctx unsafe.Pointer, a int32) {
+func walltime(ctx unsafe.Pointer, sp int32) {
 	fmt.Println("wall time")
 }
 
 //export scheduleCallback
-func scheduleCallback(ctx unsafe.Pointer, a int32) {
+func scheduleCallback(ctx unsafe.Pointer, sp int32) {
 	fmt.Println("schedule callback")
 }
 
 //export clearScheduledCallback
-func clearScheduledCallback(ctx unsafe.Pointer, a int32) {
+func clearScheduledCallback(ctx unsafe.Pointer, sp int32) {
 	fmt.Println("clear scheduled callback")
 }
 
 //export getRandomData
-func getRandomData(ctx unsafe.Pointer, a int32) {
-	s := Bridge.loadSlice(a + 8)
+func getRandomData(ctx unsafe.Pointer, sp int32) {
+	s := getBridge(ctx).loadSlice(sp + 8)
 	_, err := rand.Read(s)
 	if err != nil {
 		fmt.Println("failed: getRandomData", err)
@@ -86,73 +86,78 @@ func getRandomData(ctx unsafe.Pointer, a int32) {
 }
 
 //export stringVal
-func stringVal(ctx unsafe.Pointer, a int32) {
+func stringVal(ctx unsafe.Pointer, sp int32) {
 	fmt.Println("stringVal")
 }
 
 //export valueGet
-func valueGet(ctx unsafe.Pointer, a int32) {
-	str := Bridge.loadString(a + 16)
-	fmt.Println("valueGet", str)
+func valueGet(ctx unsafe.Pointer, sp int32) {
+	b := getBridge(ctx)
+	str := b.loadString(sp + 16)
+	val := b.loadValue(sp + 8)
+	fmt.Println("valueGet", str, val)
 }
 
 //export valueSet
-func valueSet(ctx unsafe.Pointer, a int32) {
-	fmt.Println("valueSet")
+func valueSet(ctx unsafe.Pointer, sp int32) {
+	str := getBridge(ctx).loadString(sp + 16)
+	fmt.Println("valueSet", str)
 }
 
 //export valueIndex
-func valueIndex(ctx unsafe.Pointer, a int32) {
+func valueIndex(ctx unsafe.Pointer, sp int32) {
 	fmt.Println("valueIndex")
 }
 
 //export valueSetIndex
-func valueSetIndex(ctx unsafe.Pointer, a int32) {
+func valueSetIndex(ctx unsafe.Pointer, sp int32) {
 	fmt.Println("valueSetIndex")
 }
 
 //export valueCall
-func valueCall(ctx unsafe.Pointer, a int32) {
-	fmt.Println("valueCall")
+func valueCall(ctx unsafe.Pointer, sp int32) {
+	str := getBridge(ctx).loadString(sp + 16)
+	fmt.Println("valueCall", str)
 }
 
 //export valueInvoke
-func valueInvoke(ctx unsafe.Pointer, a int32) {
+func valueInvoke(ctx unsafe.Pointer, sp int32) {
 	fmt.Println("valueInvoke")
 }
 
 //export valueNew
-func valueNew(ctx unsafe.Pointer, a int32) {
-	fmt.Println("valueNew")
+func valueNew(ctx unsafe.Pointer, sp int32) {
+	str := getBridge(ctx).loadString(sp + 16)
+	fmt.Println("valueNew", str)
 }
 
 //export valueLength
-func valueLength(ctx unsafe.Pointer, a int32) {
+func valueLength(ctx unsafe.Pointer, sp int32) {
 	fmt.Println("valueLength")
 }
 
 //export valuePrepareString
-func valuePrepareString(ctx unsafe.Pointer, a int32) {
+func valuePrepareString(ctx unsafe.Pointer, sp int32) {
 	fmt.Println("valuePrepareString")
 }
 
 //export valueLoadString
-func valueLoadString(ctx unsafe.Pointer, a int32) {
+func valueLoadString(ctx unsafe.Pointer, sp int32) {
 	fmt.Println("valueLoadString")
 }
 
 //export scheduleTimeoutEvent
-func scheduleTimeoutEvent(ctx unsafe.Pointer, a int32) {
+func scheduleTimeoutEvent(ctx unsafe.Pointer, sp int32) {
 	fmt.Println("scheduleTimeoutEvent")
 }
 
 //export clearTimeoutEvent
-func clearTimeoutEvent(ctx unsafe.Pointer, a int32) {
+func clearTimeoutEvent(ctx unsafe.Pointer, sp int32) {
 	fmt.Println("clearTimeoutEvent")
 }
 
-// addImports adds go bridge imports in "go" namespace.
-func (b *bridge) addImports(imps *wasmer.Imports) error {
+// addImports adds go Bridge imports in "go" namespace.
+func (b *Bridge) addImports(imps *wasmer.Imports) error {
 	imps = imps.Namespace("go")
 	var is = []struct {
 		name string
