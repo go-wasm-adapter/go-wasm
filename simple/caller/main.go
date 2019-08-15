@@ -7,8 +7,7 @@ import (
 )
 
 func main() {
-	b := wasmgo.Bridge{}
-	err := b.InitWASM("test", "./simple/prog/main.wasm", nil)
+	b, err := wasmgo.BridgeFromFile("test", "./simple/prog/main.wasm", nil)
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -28,7 +28,6 @@ extern void clearTimeoutEvent(void *context, int32_t a);
 import "C"
 import (
 	"crypto/rand"
-	"encoding/binary"
 	"fmt"
 	"log"
 	"time"
@@ -46,13 +45,12 @@ func debug(ctx unsafe.Pointer, sp int32) {
 func wexit(ctx unsafe.Pointer, sp int32) {
 	b := getBridge(ctx)
 	b.vmExit = true
-	mem := b.mem()
-	b.exitCode = int(binary.LittleEndian.Uint32(mem[sp+8:]))
+	b.exitCode = int(b.getUint32(sp + 8))
 }
 
 //export wwrite
 func wwrite(ctx unsafe.Pointer, sp int32) {
-	fmt.Println("wasm write", sp)
+	log.Fatal("wasm write", sp)
 }
 
 //export nanotime
@@ -63,97 +61,114 @@ func nanotime(ctx unsafe.Pointer, sp int32) {
 
 //export walltime
 func walltime(ctx unsafe.Pointer, sp int32) {
-	fmt.Println("wall time")
+	log.Fatal("wall time")
 }
 
 //export scheduleCallback
 func scheduleCallback(ctx unsafe.Pointer, sp int32) {
-	fmt.Println("schedule callback")
+	log.Fatal("schedule callback")
 }
 
 //export clearScheduledCallback
 func clearScheduledCallback(ctx unsafe.Pointer, sp int32) {
-	fmt.Println("clear scheduled callback")
+	log.Fatal("clear scheduled callback")
 }
 
 //export getRandomData
 func getRandomData(ctx unsafe.Pointer, sp int32) {
 	s := getBridge(ctx).loadSlice(sp + 8)
 	_, err := rand.Read(s)
+	// TODO how to pass error?
 	if err != nil {
-		fmt.Println("failed: getRandomData", err)
+		log.Fatal("failed: getRandomData", err)
 	}
 }
 
 //export stringVal
 func stringVal(ctx unsafe.Pointer, sp int32) {
-	fmt.Println("stringVal")
+	log.Fatal("stringVal")
 }
 
 //export valueGet
 func valueGet(ctx unsafe.Pointer, sp int32) {
 	b := getBridge(ctx)
 	str := b.loadString(sp + 16)
-	val := b.loadValue(sp + 8)
-	fmt.Println("valueGet", str, val)
+	id, val := b.loadValue(sp + 8)
+	sp = b.getSP()
+	obj, ok := val.(*object)
+	if !ok {
+		fmt.Println("valueGet", str, id)
+		b.storeValue(sp+32, val)
+		return
+	}
+
+	res, ok := obj.props[str]
+	if !ok {
+		// TODO
+		log.Fatal("missing property", val, str)
+	}
+	fmt.Println("valueGet", str, id, obj.name)
+	b.storeValue(sp+32, res)
 }
 
 //export valueSet
 func valueSet(ctx unsafe.Pointer, sp int32) {
 	str := getBridge(ctx).loadString(sp + 16)
-	fmt.Println("valueSet", str)
+	log.Fatal("valueSet", str)
 }
 
 //export valueIndex
 func valueIndex(ctx unsafe.Pointer, sp int32) {
-	fmt.Println("valueIndex")
+	log.Fatal("valueIndex")
 }
 
 //export valueSetIndex
 func valueSetIndex(ctx unsafe.Pointer, sp int32) {
-	fmt.Println("valueSetIndex")
+	log.Fatal("valueSetIndex")
 }
 
 //export valueCall
 func valueCall(ctx unsafe.Pointer, sp int32) {
 	str := getBridge(ctx).loadString(sp + 16)
-	fmt.Println("valueCall", str)
+	log.Fatal("valueCall", str)
 }
 
 //export valueInvoke
 func valueInvoke(ctx unsafe.Pointer, sp int32) {
-	fmt.Println("valueInvoke")
+	log.Fatal("valueInvoke")
 }
 
 //export valueNew
 func valueNew(ctx unsafe.Pointer, sp int32) {
-	str := getBridge(ctx).loadString(sp + 16)
-	fmt.Println("valueNew", str)
+	b := getBridge(ctx)
+	id, val := b.loadValue(sp + 8)
+	args := b.loadSliceOfValues(sp + 16)
+	log.Fatal("valueNew ", id, val, args)
 }
 
 //export valueLength
 func valueLength(ctx unsafe.Pointer, sp int32) {
-	fmt.Println("valueLength")
+	log.Fatal("valueLength")
 }
 
 //export valuePrepareString
 func valuePrepareString(ctx unsafe.Pointer, sp int32) {
-	fmt.Println("valuePrepareString")
+	log.Fatal("valuePrepareString")
 }
 
 //export valueLoadString
 func valueLoadString(ctx unsafe.Pointer, sp int32) {
-	fmt.Println("valueLoadString")
+	log.Fatal("valueLoadString")
 }
 
 //export scheduleTimeoutEvent
 func scheduleTimeoutEvent(ctx unsafe.Pointer, sp int32) {
-	fmt.Println("scheduleTimeoutEvent")
+	log.Fatal("scheduleTimeoutEvent")
 }
 
 //export clearTimeoutEvent
 func clearTimeoutEvent(ctx unsafe.Pointer, sp int32) {
-	fmt.Println("clearTimeoutEvent")
+	log.Fatal("clearTimeoutEvent")
 }
 
 // addImports adds go Bridge imports in "go" namespace.
