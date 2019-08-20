@@ -45,8 +45,8 @@ func debug(ctx unsafe.Pointer, sp int32) {
 //export wexit
 func wexit(ctx unsafe.Pointer, sp int32) {
 	b := getBridge(ctx)
-	b.vmExit = true
 	b.exitCode = int(b.getUint32(sp + 8))
+	close(b.done)
 }
 
 //export wwrite
@@ -56,7 +56,6 @@ func wwrite(ctx unsafe.Pointer, sp int32) {
 	p := int(b.getInt64(sp + 16))
 	l := int(b.getInt32(sp + 24))
 	syscall.Write(fd, b.mem()[p:p+l])
-	fmt.Println("wasm write", fd, p, l)
 }
 
 //export nanotime
@@ -120,7 +119,6 @@ func valueGet(ctx unsafe.Pointer, sp int32) {
 		// TODO
 		panic(fmt.Sprintln("missing property", str, val))
 	}
-	fmt.Println("valueGet", str, obj.name)
 	b.storeValue(sp+32, res)
 }
 
@@ -132,7 +130,6 @@ func valueSet(ctx unsafe.Pointer, sp int32) {
 	prop := b.loadString(sp + 16)
 	propVal := b.loadValue(sp + 32)
 	obj.props[prop] = propVal
-	fmt.Println("valueSet", obj, prop, propVal)
 }
 
 //export valueIndex
@@ -147,7 +144,6 @@ func valueIndex(ctx unsafe.Pointer, sp int32) {
 
 	iv := rv.Index(int(i))
 	b.storeValue(sp+24, iv.Interface())
-	fmt.Println("valueIndex:", iv)
 }
 
 //export valueSetIndex
@@ -161,7 +157,6 @@ func valueCall(ctx unsafe.Pointer, sp int32) {
 	v := b.loadValue(sp + 8)
 	str := b.loadString(sp + 16)
 	args := b.loadSliceOfValues(sp + 32)
-	fmt.Println("valueCall: ", v.(*object).name, str, args)
 	f, ok := v.(*object).props[str].(wasmFunc)
 	if !ok {
 		panic(fmt.Sprintln("valueCall: prop not found in ", v, str))
@@ -193,7 +188,6 @@ func valueNew(ctx unsafe.Pointer, sp int32) {
 	sp = b.getSP()
 	b.storeValue(sp+40, res)
 	b.setUint8(sp+48, 1)
-	fmt.Println("valueNew ", val, args)
 }
 
 //export valueLength
@@ -205,7 +199,6 @@ func valueLength(ctx unsafe.Pointer, sp int32) {
 		rv = rv.Elem()
 	}
 	b.setInt64(sp+16, int64(rv.Len()))
-	fmt.Println("valueLength:", rv.Len())
 }
 
 //export valuePrepareString
@@ -219,7 +212,6 @@ func valuePrepareString(ctx unsafe.Pointer, sp int32) {
 
 	b.storeValue(sp+16, str)
 	b.setInt64(sp+24, int64(len(str)))
-	fmt.Println("valuePrepareString", val)
 }
 
 //export valueLoadString

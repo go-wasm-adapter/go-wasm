@@ -36,7 +36,7 @@ func getBridge(ctx unsafe.Pointer) *Bridge {
 type Bridge struct {
 	name     string
 	instance wasmer.Instance
-	vmExit   bool
+	done     chan bool
 	exitCode int
 	values   []interface{}
 	refs     map[interface{}]int
@@ -145,23 +145,20 @@ func (b *Bridge) addValues() {
 }
 
 // Run start the wasm instance.
-func (b *Bridge) Run(init chan bool, done chan error) {
+func (b *Bridge) Run(init chan error, done chan bool) {
 	defer b.instance.Close()
 
+	b.done = done
 	run := b.instance.Exports["run"]
 	_, err := run(0, 0)
 	if err != nil {
-		init <- false
-		done <- err
+		init <- err
 		return
 	}
 
-	init <- true
-	// use channel from wasm exit
-	for !b.vmExit {
-	}
+	init <- nil
+	<-b.done
 	fmt.Printf("WASM exited with code: %v\n", b.exitCode)
-	done <- nil
 }
 
 func (b *Bridge) mem() []byte {
@@ -404,6 +401,7 @@ func (b *Bridge) makeFuncWrapper(id, this interface{}, args *[]interface{}) (int
 	return event.props["result"], nil
 }
 
+// TODO cheeck if the wasm is still running
 func (b *Bridge) CallFunc(fn string, args *[]interface{}) (interface{}, error) {
 	fw, ok := b.values[5].(*object).props[fn]
 	if !ok {

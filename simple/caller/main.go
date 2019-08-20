@@ -13,11 +13,15 @@ func main() {
 		log.Fatal(err)
 	}
 
-	init, done := make(chan bool), make(chan error)
+	init, done := make(chan error), make(chan bool)
 	go b.Run(init, done)
-	<-init
+	err = <-init
+	if err != nil {
+		panic(err)
+	}
+
 	res, err := b.CallFunc("printWasm", &[]interface{}{"Hello from Go"})
 	fmt.Println(res, err)
-	err = <-done
+	<-done
 	fmt.Println("wasm exited", err)
 }
