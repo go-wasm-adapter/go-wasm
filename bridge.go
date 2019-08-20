@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"github.com/wasmerio/go-ext-wasm/wasmer"
@@ -102,6 +103,19 @@ func (b *Bridge) addValues() {
 				"Float32Array": typedArray("Float32Array"),
 				"Float64Array": typedArray("Float64Array"),
 				"process":      propObject("process", nil),
+				"Date": &object{name: "Date", new: func(args []interface{}) interface{} {
+					t := time.Now()
+					return &object{name: "DateInner", props: map[string]interface{}{
+						"time": t,
+						"getTimezoneOffset": Func(func(args []interface{}) (interface{}, error) {
+							_, offset := t.Zone()
+
+							// make it negative and return in minutes
+							offset = (offset / 60) * -1
+							return offset, nil
+						}),
+					}}
+				}},
 				"fs": propObject("fs", map[string]interface{}{
 					"constants": propObject("constants", map[string]interface{}{
 						"O_WRONLY": syscall.O_WRONLY,

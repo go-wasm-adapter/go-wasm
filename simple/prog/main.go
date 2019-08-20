@@ -3,13 +3,13 @@
 package main
 
 import (
-	"fmt"
+	"log"
 	"syscall/js"
 )
 
 // TODO: log seems to cause an issue
 func addition(this js.Value, args []js.Value) interface{} {
-	fmt.Println("In WASM", args)
+	log.Println("In WASM", args)
 	a, b := args[0].Int(), args[1].Int()
 	return a + b
 }
@@ -22,6 +22,6 @@ func main() {
 	js.Global().Set("addition", fun)
 
 	res := js.Global().Get("proxy").Invoke(1, 2)
-	fmt.Printf("1 + 2 = %d\n", res.Int())
+	log.Printf("1 + 2 = %d\n", res.Int())
 	<-ch
 }

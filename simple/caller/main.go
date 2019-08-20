@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 
 	wasmgo "github.com/vedhavyas/wasm"
@@ -9,7 +8,7 @@ import (
 
 func proxy(b *wasmgo.Bridge) wasmgo.Func {
 	return func(args []interface{}) (i interface{}, e error) {
-		fmt.Println("In Go", args)
+		log.Println("In Go", args)
 		return b.CallFunc("addition", args)
 	}
 }
@@ -33,5 +32,5 @@ func main() {
 	}
 
 	<-done
-	fmt.Println("wasm exited", err)
+	log.Println("wasm exited", err)
 }
