@@ -46,6 +46,7 @@ func debug(ctx unsafe.Pointer, sp int32) {
 func wexit(ctx unsafe.Pointer, sp int32) {
 	b := getBridge(ctx)
 	b.exitCode = int(b.getUint32(sp + 8))
+	b.exited = true
 	close(b.done)
 }
 
@@ -115,7 +116,6 @@ func valueGet(ctx unsafe.Pointer, sp int32) {
 
 	res, ok := obj.props[str]
 	if !ok {
-		// TODO
 		panic(fmt.Sprintln("missing property", str, val))
 	}
 	b.storeValue(sp+32, res)

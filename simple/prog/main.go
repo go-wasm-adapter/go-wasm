@@ -7,7 +7,6 @@ import (
 	"syscall/js"
 )
 
-// TODO: log seems to cause an issue
 func addition(this js.Value, args []js.Value) interface{} {
 	log.Println("In WASM", args)
 	a, b := args[0].Int(), args[1].Int()

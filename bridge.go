@@ -18,12 +18,15 @@ var bridges = map[string]*Bridge{}
 var mu sync.RWMutex // to protect bridges
 type context struct{ n string }
 
-// TODO ensure it  wont override the another context with same name.
-func setBridge(b *Bridge) unsafe.Pointer {
+func getCtxData(b *Bridge) (unsafe.Pointer, error) {
 	mu.Lock()
 	defer mu.Unlock()
+	if _, ok := bridges[b.name]; ok {
+		return nil, fmt.Errorf("bridge with name %s already exists", b.name)
+	}
+
 	bridges[b.name] = b
-	return unsafe.Pointer(&context{n: b.name})
+	return unsafe.Pointer(&context{n: b.name}), nil
 }
 
 func getBridge(ctx unsafe.Pointer) *Bridge {
@@ -42,6 +45,7 @@ type Bridge struct {
 	values   []interface{}
 	refs     map[interface{}]int
 	memory   []byte
+	exited   bool
 }
 
 func BridgeFromBytes(name string, bytes []byte, imports *wasmer.Imports) (*Bridge, error) {
@@ -61,8 +65,13 @@ func BridgeFromBytes(name string, bytes []byte, imports *wasmer.Imports) (*Bridg
 		return nil, err
 	}
 
+	ctx, err := getCtxData(b)
+	if err != nil {
+		return nil, err
+	}
+
 	b.instance = inst
-	inst.SetContextData(setBridge(b))
+	inst.SetContextData(ctx)
 	b.addValues()
 	b.refs = make(map[interface{}]int)
 	return b, nil
@@ -159,8 +168,15 @@ func (b *Bridge) addValues() {
 	}
 }
 
+func (b *Bridge) check() {
+	if b.exited {
+		panic("WASM instance already exited")
+	}
+}
+
 // Run start the wasm instance.
 func (b *Bridge) Run(init chan error, done chan bool) {
+	b.check()
 	defer b.instance.Close()
 
 	b.done = done
@@ -358,7 +374,7 @@ func (b *Bridge) storeValue(addr int32, v interface{}) {
 }
 
 type object struct {
-	name  string // TODO for debugging
+	name  string // for debugging
 	props map[string]interface{}
 	new   func(args []interface{}) interface{}
 }
@@ -422,8 +438,8 @@ func (b *Bridge) makeFuncWrapper(id, this interface{}, args *[]interface{}) (int
 	return event.props["result"], nil
 }
 
-// TODO cheeck if the wasm is still running
 func (b *Bridge) CallFunc(fn string, args []interface{}) (interface{}, error) {
+	b.check()
 	fw, ok := b.values[5].(*object).props[fn]
 	if !ok {
 		return nil, fmt.Errorf("missing function: %v", fn)
@@ -432,7 +448,6 @@ func (b *Bridge) CallFunc(fn string, args []interface{}) (interface{}, error) {
 	return b.makeFuncWrapper(fw.(*funcWrapper).id, b.values[7], &args)
 }
 
-// TODO check if wasm is still running
 func (b *Bridge) SetFunc(fname string, fn Func) error {
 	b.values[5].(*object).props[fname] = &fn
 	return nil
