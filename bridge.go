@@ -78,7 +78,7 @@ func BridgeFromFile(name, file string, imports *wasmer.Imports) (*Bridge, error)
 func (b *Bridge) addValues() {
 	var goObj *object
 	goObj = propObject("jsGo", map[string]interface{}{
-		"_makeFuncWrapper": wasmFunc(func(args []interface{}) (interface{}, error) {
+		"_makeFuncWrapper": Func(func(args []interface{}) (interface{}, error) {
 			return &funcWrapper{id: args[0]}, nil
 		}),
 		"_pendingEvent": nil,
@@ -112,7 +112,7 @@ func (b *Bridge) addValues() {
 						"O_EXCL":   syscall.O_EXCL,
 					}),
 
-					"write": wasmFunc(func(args []interface{}) (interface{}, error) {
+					"write": Func(func(args []interface{}) (interface{}, error) {
 						fd := int(args[0].(float64))
 						offset := int(args[2].(float64))
 						length := int(args[3].(float64))
@@ -311,6 +311,11 @@ func (b *Bridge) storeValue(addr int32, v interface{}) {
 		return
 	}
 
+	rv := reflect.TypeOf(v)
+	if rv.Kind() == reflect.Ptr {
+		rv = rv.Elem()
+	}
+
 	ref, ok := b.refs[v]
 	if !ok {
 		ref = len(b.values)
@@ -319,18 +324,15 @@ func (b *Bridge) storeValue(addr int32, v interface{}) {
 	}
 
 	typeFlag := 0
-	rv := reflect.TypeOf(v)
-	if rv.Kind() == reflect.Ptr {
-		rv = rv.Elem()
-	}
 	switch rv.Kind() {
 	case reflect.String:
 		typeFlag = 1
-	case reflect.Struct, reflect.Slice: //TODO symbol maybe?
+	case reflect.Struct, reflect.Slice:
 		typeFlag = 2
+	case reflect.Func:
+		typeFlag = 3
 	default:
 		panic(fmt.Sprintf("unknown type: %T", v))
-		// TODO function
 	}
 	b.setUint32(addr+4, uint32(nanHead|typeFlag))
 	b.setUint32(addr, uint32(ref))
@@ -372,7 +374,7 @@ type buffer struct {
 	data []byte
 }
 
-type wasmFunc func(args []interface{}) (interface{}, error)
+type Func func(args []interface{}) (interface{}, error)
 
 func (b *Bridge) resume() error {
 	res := b.instance.Exports["resume"]
@@ -402,11 +404,17 @@ func (b *Bridge) makeFuncWrapper(id, this interface{}, args *[]interface{}) (int
 }
 
 // TODO cheeck if the wasm is still running
-func (b *Bridge) CallFunc(fn string, args *[]interface{}) (interface{}, error) {
+func (b *Bridge) CallFunc(fn string, args []interface{}) (interface{}, error) {
 	fw, ok := b.values[5].(*object).props[fn]
 	if !ok {
 		return nil, fmt.Errorf("missing function: %v", fn)
 	}
 
-	return b.makeFuncWrapper(fw.(*funcWrapper).id, b.values[7], args)
+	return b.makeFuncWrapper(fw.(*funcWrapper).id, b.values[7], &args)
+}
+
+// TODO check if wasm is still running
+func (b *Bridge) SetFunc(fname string, fn Func) error {
+	b.values[5].(*object).props[fname] = &fn
+	return nil
 }

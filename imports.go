@@ -157,7 +157,7 @@ func valueCall(ctx unsafe.Pointer, sp int32) {
 	v := b.loadValue(sp + 8)
 	str := b.loadString(sp + 16)
 	args := b.loadSliceOfValues(sp + 32)
-	f, ok := v.(*object).props[str].(wasmFunc)
+	f, ok := v.(*object).props[str].(Func)
 	if !ok {
 		panic(fmt.Sprintln("valueCall: prop not found in ", v, str))
 	}
@@ -176,7 +176,19 @@ func valueCall(ctx unsafe.Pointer, sp int32) {
 
 //export valueInvoke
 func valueInvoke(ctx unsafe.Pointer, sp int32) {
-	panic("valueInvoke")
+	b := getBridge(ctx)
+	val := *(b.loadValue(sp + 8).(*Func))
+	args := b.loadSliceOfValues(sp + 16)
+	res, err := val(args)
+	sp = b.getSP()
+	if err != nil {
+		b.storeValue(sp+40, err)
+		b.setUint8(sp+48, 0)
+		return
+	}
+
+	b.storeValue(sp+40, res)
+	b.setUint8(sp+48, 1)
 }
 
 //export valueNew

@@ -8,17 +8,22 @@ import (
 )
 
 // TODO: log seems to cause an issue
-func printWasm(this js.Value, v []js.Value) interface{} {
-	fmt.Println(v[0].String())
-	return "Hello from WASM"
+func addition(this js.Value, args []js.Value) interface{} {
+	fmt.Println("In WASM", args)
+	this.Set()
+	this.SetIndex()
+	a, b := args[0].Int(), args[1].Int()
+	return a + b
 }
 
 func main() {
 	ch := make(chan bool)
-	fmt.Println("WASM-Go Initialized")
 
 	// register functions
-	fun := js.FuncOf(printWasm)
-	js.Global().Set("printWasm", fun)
+	fun := js.FuncOf(addition)
+	js.Global().Set("addition", fun)
+
+	res := js.Global().Get("proxy").Invoke(1, 2)
+	fmt.Printf("1 + 2 = %d\n", res.Int())
 	<-ch
 }
