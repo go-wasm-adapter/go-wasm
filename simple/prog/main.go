@@ -10,8 +10,6 @@ import (
 // TODO: log seems to cause an issue
 func addition(this js.Value, args []js.Value) interface{} {
 	fmt.Println("In WASM", args)
-	this.Set()
-	this.SetIndex()
 	a, b := args[0].Int(), args[1].Int()
 	return a + b
 }
