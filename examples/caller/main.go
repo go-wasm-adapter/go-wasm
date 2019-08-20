@@ -3,10 +3,10 @@ package main
 import (
 	"log"
 
-	wasmgo "github.com/vedhavyas/wasm"
+	"github.com/vedhavyas/go-wasm"
 )
 
-func proxy(b *wasmgo.Bridge) wasmgo.Func {
+func proxy(b *wasm.Bridge) wasm.Func {
 	return func(args []interface{}) (i interface{}, e error) {
 		log.Println("In Go", args)
 		return b.CallFunc("addition", args)
@@ -14,7 +14,7 @@ func proxy(b *wasmgo.Bridge) wasmgo.Func {
 }
 
 func main() {
-	b, err := wasmgo.BridgeFromFile("test", "./simple/prog/main.wasm", nil)
+	b, err := wasm.BridgeFromFile("test", "./examples/wasm/main.wasm", nil)
 	if err != nil {
 		log.Fatal(err)
 	}
