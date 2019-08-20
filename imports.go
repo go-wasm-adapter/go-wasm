@@ -98,7 +98,9 @@ func getRandomData(ctx unsafe.Pointer, sp int32) {
 
 //export stringVal
 func stringVal(ctx unsafe.Pointer, sp int32) {
-	panic("stringVal")
+	b := getBridge(ctx)
+	str := b.loadString(sp + 8)
+	b.storeValue(sp+24, str)
 }
 
 //export valueGet
@@ -212,17 +214,20 @@ func valuePrepareString(ctx unsafe.Pointer, sp int32) {
 	val := b.loadValue(sp + 8)
 	var str string
 	if val != nil {
-		str = val.(string)
+		str = fmt.Sprint(val)
 	}
 
 	b.storeValue(sp+16, str)
 	b.setInt64(sp+24, int64(len(str)))
-	fmt.Println("valuePrepareString", val, str)
+	fmt.Println("valuePrepareString", val)
 }
 
 //export valueLoadString
 func valueLoadString(ctx unsafe.Pointer, sp int32) {
-	panic("valueLoadString")
+	b := getBridge(ctx)
+	str := b.loadValue(sp + 8).(string)
+	sl := b.loadSlice(sp + 16)
+	copy(sl, str)
 }
 
 //export scheduleTimeoutEvent

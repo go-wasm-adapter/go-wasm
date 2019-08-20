@@ -16,7 +16,7 @@ func main() {
 	init, done := make(chan bool), make(chan error)
 	go b.Run(init, done)
 	<-init
-	res, err := b.CallFunc("printWasm", &[]interface{}{"success call"})
+	res, err := b.CallFunc("printWasm", &[]interface{}{"Hello from Go"})
 	fmt.Println(res, err)
 	err = <-done
 	fmt.Println("wasm exited", err)
