@@ -41,6 +41,7 @@ type Bridge struct {
 	exitCode int
 	values   []interface{}
 	refs     map[interface{}]int
+	memory   []byte
 }
 
 func BridgeFromBytes(name string, bytes []byte, imports *wasmer.Imports) (*Bridge, error) {
@@ -176,7 +177,11 @@ func (b *Bridge) Run(init chan error, done chan bool) {
 }
 
 func (b *Bridge) mem() []byte {
-	return b.instance.Memory.Data()
+	if b.memory == nil {
+		b.memory = b.instance.Memory.Data()
+	}
+
+	return b.memory
 }
 
 func (b *Bridge) getSP() int32 {
