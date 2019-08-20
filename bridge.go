@@ -3,8 +3,8 @@ package wasm
 import (
 	"encoding/binary"
 	"fmt"
-	"log"
 	"math"
+	"reflect"
 	"sync"
 	"syscall"
 	"unsafe"
@@ -76,6 +76,13 @@ func BridgeFromFile(name, file string, imports *wasmer.Imports) (*Bridge, error)
 }
 
 func (b *Bridge) addValues() {
+	var goObj *object
+	goObj = propObject("jsGo", map[string]interface{}{
+		"_makeFuncWrapper": wasmFunc(func(args []interface{}) (interface{}, error) {
+			return &funcWrapper{id: args[0]}, nil
+		}),
+		"_pendingEvent": nil,
+	})
 	b.values = []interface{}{
 		math.NaN(),
 		float64(0),
@@ -84,8 +91,8 @@ func (b *Bridge) addValues() {
 		false,
 		&object{
 			props: map[string]interface{}{
-				"Object":       &object{name: "Object", props: map[string]interface{}{}},
-				"Array":        &object{name: "Array", props: map[string]interface{}{}},
+				"Object":       propObject("Object", nil),
+				"Array":        propObject("Array", nil),
 				"Int8Array":    typedArray("Int8Array"),
 				"Int16Array":   typedArray("Int16Array"),
 				"Int32Array":   typedArray("Int32Array"),
@@ -94,49 +101,67 @@ func (b *Bridge) addValues() {
 				"Uint32Array":  typedArray("Uint32Array"),
 				"Float32Array": typedArray("Float32Array"),
 				"Float64Array": typedArray("Float64Array"),
-				"process":      &object{name: "process", props: map[string]interface{}{}},
-				"fs": &object{name: "fs", props: map[string]interface{}{
-					"constants": &object{name: "constants", props: map[string]interface{}{
+				"process":      propObject("process", nil),
+				"fs": propObject("fs", map[string]interface{}{
+					"constants": propObject("constants", map[string]interface{}{
 						"O_WRONLY": syscall.O_WRONLY,
 						"O_RDWR":   syscall.O_RDWR,
 						"O_CREAT":  syscall.O_CREAT,
 						"O_TRUNC":  syscall.O_TRUNC,
 						"O_APPEND": syscall.O_APPEND,
 						"O_EXCL":   syscall.O_EXCL,
-					}},
-				}},
+					}),
+
+					"write": wasmFunc(func(args []interface{}) (interface{}, error) {
+						fd := int(args[0].(float64))
+						offset := int(args[2].(float64))
+						length := int(args[3].(float64))
+						buf := args[1].(*array).data()[offset : offset+length]
+						pos := args[4]
+						callback := args[5].(*funcWrapper)
+						var err error
+						var n int
+						if pos != nil {
+							position := int64(pos.(float64))
+							n, err = syscall.Pwrite(fd, buf, position)
+						} else {
+							n, err = syscall.Write(fd, buf)
+						}
+
+						if err != nil {
+							return nil, err
+						}
+
+						return b.makeFuncWrapper(callback.id, goObj, &[]interface{}{nil, n})
+					}),
+				}),
 			},
 		}, //global
-		&object{
-			name: "mem",
-			props: map[string]interface{}{
-				"buffer": &arrayBuffer{data: b.mem()},
-			},
-		},
-		&object{name: "jsGo", props: map[string]interface{}{}}, // jsGo
+		propObject("mem", map[string]interface{}{
+			"buffer": &buffer{data: b.mem()}},
+		),
+		goObj, // jsGo
 	}
 }
 
 // Run start the wasm instance.
-func (b *Bridge) Run() error {
+func (b *Bridge) Run(init chan bool, done chan error) {
 	defer b.instance.Close()
 
 	run := b.instance.Exports["run"]
-	resume := b.instance.Exports["resume"]
 	_, err := run(0, 0)
 	if err != nil {
-		return err
+		init <- false
+		done <- err
+		return
 	}
 
+	init <- true
+	// use channel from wasm exit
 	for !b.vmExit {
-		_, err = resume()
-		if err != nil {
-			return err
-		}
 	}
-
 	fmt.Printf("WASM exited with code: %v\n", b.exitCode)
-	return nil
+	done <- nil
 }
 
 func (b *Bridge) mem() []byte {
@@ -147,10 +172,15 @@ func (b *Bridge) getSP() int32 {
 	spFunc := b.instance.Exports["getsp"]
 	val, err := spFunc()
 	if err != nil {
-		log.Fatal("failed to get sp", err)
+		panic("failed to get sp")
 	}
 
 	return val.ToI32()
+}
+
+func (b *Bridge) setUint8(offset int32, v uint8) {
+	mem := b.mem()
+	mem[offset] = byte(v)
 }
 
 func (b *Bridge) setInt64(offset int32, v int64) {
@@ -158,9 +188,19 @@ func (b *Bridge) setInt64(offset int32, v int64) {
 	binary.LittleEndian.PutUint64(mem[offset:], uint64(v))
 }
 
+func (b *Bridge) setInt32(offset int32, v int32) {
+	mem := b.mem()
+	binary.LittleEndian.PutUint32(mem[offset:], uint32(v))
+}
+
 func (b *Bridge) getInt64(offset int32) int64 {
 	mem := b.mem()
 	return int64(binary.LittleEndian.Uint64(mem[offset:]))
+}
+
+func (b *Bridge) getInt32(offset int32) int32 {
+	mem := b.mem()
+	return int32(binary.LittleEndian.Uint32(mem[offset:]))
 }
 
 func (b *Bridge) setUint32(offset int32, v uint32) {
@@ -209,25 +249,23 @@ func (b *Bridge) loadSliceOfValues(addr int32) []interface{} {
 	arrLen := int(b.getInt64(addr + 8))
 	vals := make([]interface{}, arrLen, arrLen)
 	for i := 0; i < int(arrLen); i++ {
-		_, vals[i] = b.loadValue(int32(arr + i*8))
+		vals[i] = b.loadValue(int32(arr + i*8))
 	}
 
 	return vals
 }
 
-// TODO remove id once debugging is done
-func (b *Bridge) loadValue(addr int32) (uint32, interface{}) {
+func (b *Bridge) loadValue(addr int32) interface{} {
 	f := b.getFloat64(addr)
 	if f == 0 {
-		return 0, undefined
+		return undefined
 	}
 
 	if !math.IsNaN(f) {
-		return 0, f
+		return f
 	}
 
-	id := b.getUint32(addr)
-	return id, b.values[id]
+	return b.values[b.getUint32(addr)]
 }
 
 func (b *Bridge) storeValue(addr int32, v interface{}) {
@@ -284,13 +322,17 @@ func (b *Bridge) storeValue(addr int32, v interface{}) {
 	}
 
 	typeFlag := 0
-	switch v.(type) {
-	case string:
+	rv := reflect.TypeOf(v)
+	if rv.Kind() == reflect.Ptr {
+		rv = rv.Elem()
+	}
+	switch rv.Kind() {
+	case reflect.String:
 		typeFlag = 1
-	case *object, *arrayBuffer: //TODO symbol maybe?
+	case reflect.Struct, reflect.Slice: //TODO symbol maybe?
 		typeFlag = 2
 	default:
-		log.Fatalf("unknown type: %T", v)
+		panic(fmt.Sprintf("unknown type: %T", v))
 		// TODO function
 	}
 	b.setUint32(addr+4, uint32(nanHead|typeFlag))
@@ -300,15 +342,73 @@ func (b *Bridge) storeValue(addr int32, v interface{}) {
 type object struct {
 	name  string // TODO for debugging
 	props map[string]interface{}
+	new   func(args []interface{}) interface{}
 }
 
+func propObject(name string, prop map[string]interface{}) *object {
+	return &object{name: name, props: prop}
+}
+
+type array struct {
+	buf    *buffer
+	offset int
+	length int
+}
+
+func (a *array) data() []byte {
+	return a.buf.data[a.offset : a.offset+a.length]
+}
 func typedArray(name string) *object {
 	return &object{
-		name:  name,
-		props: map[string]interface{}{},
+		name: name,
+		new: func(args []interface{}) interface{} {
+			return &array{
+				buf:    args[0].(*buffer),
+				offset: int(args[1].(float64)),
+				length: int(args[2].(float64)),
+			}
+		},
 	}
 }
 
-type arrayBuffer struct {
+type buffer struct {
 	data []byte
+}
+
+type wasmFunc func(args []interface{}) (interface{}, error)
+
+func (b *Bridge) resume() error {
+	res := b.instance.Exports["resume"]
+	_, err := res()
+	return err
+}
+
+type funcWrapper struct {
+	id interface{}
+}
+
+func (b *Bridge) makeFuncWrapper(id, this interface{}, args *[]interface{}) (interface{}, error) {
+	goObj := b.values[7].(*object)
+	event := propObject("_pendingEvent", map[string]interface{}{
+		"id":   id,
+		"this": nil,
+		"args": args,
+	})
+
+	goObj.props["_pendingEvent"] = event
+	err := b.resume()
+	if err != nil {
+		return nil, err
+	}
+
+	return event.props["result"], nil
+}
+
+func (b *Bridge) CallFunc(fn string, args *[]interface{}) (interface{}, error) {
+	fw, ok := b.values[5].(*object).props[fn]
+	if !ok {
+		return nil, fmt.Errorf("missing function: %v", fn)
+	}
+
+	return b.makeFuncWrapper(fw.(*funcWrapper).id, b.values[7], args)
 }

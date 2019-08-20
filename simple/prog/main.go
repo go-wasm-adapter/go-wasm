@@ -7,17 +7,19 @@ import (
 	"syscall/js"
 )
 
+// TODO: log seems to cause an issue
 func printWasm(this js.Value, v []js.Value) interface{} {
 	fmt.Println("Hello from WASM", v)
 	return nil
 }
 
 func main() {
-	c := make(chan struct{}, 0)
-	fmt.Println("WASM Go Initialized")
+	ch := make(chan bool)
+	//fmt.Println("WASM Go Initialized")
 
 	// register functions
-	js.Global().Set("printWasm", js.FuncOf(printWasm))
-	fmt.Println("Done...")
-	<-c
+	fun := js.FuncOf(printWasm)
+	js.Global().Set("printWasm", fun)
+	//fmt.Println("Done...")
+	<-ch
 }

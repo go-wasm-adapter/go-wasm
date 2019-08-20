@@ -29,7 +29,8 @@ import "C"
 import (
 	"crypto/rand"
 	"fmt"
-	"log"
+	"reflect"
+	"syscall"
 	"time"
 	"unsafe"
 
@@ -38,7 +39,7 @@ import (
 
 //export debug
 func debug(ctx unsafe.Pointer, sp int32) {
-	log.Println(sp)
+	fmt.Println(sp)
 }
 
 //export wexit
@@ -50,7 +51,12 @@ func wexit(ctx unsafe.Pointer, sp int32) {
 
 //export wwrite
 func wwrite(ctx unsafe.Pointer, sp int32) {
-	log.Fatal("wasm write", sp)
+	b := getBridge(ctx)
+	fd := int(b.getInt64(sp + 8))
+	p := int(b.getInt64(sp + 16))
+	l := int(b.getInt32(sp + 24))
+	syscall.Write(fd, b.mem()[p:p+l])
+	fmt.Println("wasm write", fd, p, l)
 }
 
 //export nanotime
@@ -61,17 +67,23 @@ func nanotime(ctx unsafe.Pointer, sp int32) {
 
 //export walltime
 func walltime(ctx unsafe.Pointer, sp int32) {
-	log.Fatal("wall time")
+	b := getBridge(ctx)
+	t := time.Now().Unix()
+	sec := t / 1000
+	nanos := (t % 1000) * 1000000
+	b.setInt64(sp+8, sec)
+	b.setInt32(sp+16, int32(nanos))
+
 }
 
 //export scheduleCallback
 func scheduleCallback(ctx unsafe.Pointer, sp int32) {
-	log.Fatal("schedule callback")
+	panic("schedule callback")
 }
 
 //export clearScheduledCallback
 func clearScheduledCallback(ctx unsafe.Pointer, sp int32) {
-	log.Fatal("clear scheduled callback")
+	panic("clear scheduled callback")
 }
 
 //export getRandomData
@@ -80,24 +92,23 @@ func getRandomData(ctx unsafe.Pointer, sp int32) {
 	_, err := rand.Read(s)
 	// TODO how to pass error?
 	if err != nil {
-		log.Fatal("failed: getRandomData", err)
+		panic("failed: getRandomData")
 	}
 }
 
 //export stringVal
 func stringVal(ctx unsafe.Pointer, sp int32) {
-	log.Fatal("stringVal")
+	panic("stringVal")
 }
 
 //export valueGet
 func valueGet(ctx unsafe.Pointer, sp int32) {
 	b := getBridge(ctx)
 	str := b.loadString(sp + 16)
-	id, val := b.loadValue(sp + 8)
+	val := b.loadValue(sp + 8)
 	sp = b.getSP()
 	obj, ok := val.(*object)
 	if !ok {
-		fmt.Println("valueGet", str, id)
 		b.storeValue(sp+32, val)
 		return
 	}
@@ -105,70 +116,123 @@ func valueGet(ctx unsafe.Pointer, sp int32) {
 	res, ok := obj.props[str]
 	if !ok {
 		// TODO
-		log.Fatal("missing property", val, str)
+		panic(fmt.Sprintln("missing property", str, val))
 	}
-	fmt.Println("valueGet", str, id, obj.name)
+	fmt.Println("valueGet", str, obj.name)
 	b.storeValue(sp+32, res)
 }
 
 //export valueSet
 func valueSet(ctx unsafe.Pointer, sp int32) {
-	str := getBridge(ctx).loadString(sp + 16)
-	log.Fatal("valueSet", str)
+	b := getBridge(ctx)
+	val := b.loadValue(sp + 8)
+	obj := val.(*object)
+	prop := b.loadString(sp + 16)
+	propVal := b.loadValue(sp + 32)
+	obj.props[prop] = propVal
+	fmt.Println("valueSet", obj, prop, propVal)
 }
 
 //export valueIndex
 func valueIndex(ctx unsafe.Pointer, sp int32) {
-	log.Fatal("valueIndex")
+	b := getBridge(ctx)
+	l := b.loadValue(sp + 8)
+	i := b.getInt64(sp + 16)
+	rv := reflect.ValueOf(l)
+	if rv.Kind() == reflect.Ptr {
+		rv = rv.Elem()
+	}
+
+	iv := rv.Index(int(i))
+	b.storeValue(sp+24, iv.Interface())
+	fmt.Println("valueIndex:", iv)
 }
 
 //export valueSetIndex
 func valueSetIndex(ctx unsafe.Pointer, sp int32) {
-	log.Fatal("valueSetIndex")
+	panic("valueSetIndex")
 }
 
 //export valueCall
 func valueCall(ctx unsafe.Pointer, sp int32) {
-	str := getBridge(ctx).loadString(sp + 16)
-	log.Fatal("valueCall", str)
+	b := getBridge(ctx)
+	v := b.loadValue(sp + 8)
+	str := b.loadString(sp + 16)
+	args := b.loadSliceOfValues(sp + 32)
+	fmt.Println("valueCall: ", v.(*object).name, str, args)
+	f, ok := v.(*object).props[str].(wasmFunc)
+	if !ok {
+		panic(fmt.Sprintln("valueCall: prop not found in ", v, str))
+	}
+
+	sp = b.getSP()
+	res, err := f(args)
+	if err != nil {
+		b.storeValue(sp+56, err.Error())
+		b.setUint8(sp+64, 0)
+		return
+	}
+
+	b.storeValue(sp+56, res)
+	b.setUint8(sp+64, 1)
 }
 
 //export valueInvoke
 func valueInvoke(ctx unsafe.Pointer, sp int32) {
-	log.Fatal("valueInvoke")
+	panic("valueInvoke")
 }
 
 //export valueNew
 func valueNew(ctx unsafe.Pointer, sp int32) {
 	b := getBridge(ctx)
-	id, val := b.loadValue(sp + 8)
+	val := b.loadValue(sp + 8)
 	args := b.loadSliceOfValues(sp + 16)
-	log.Fatal("valueNew ", id, val, args)
+	res := val.(*object).new(args)
+	sp = b.getSP()
+	b.storeValue(sp+40, res)
+	b.setUint8(sp+48, 1)
+	fmt.Println("valueNew ", val, args)
 }
 
 //export valueLength
 func valueLength(ctx unsafe.Pointer, sp int32) {
-	log.Fatal("valueLength")
+	b := getBridge(ctx)
+	val := b.loadValue(sp + 8)
+	rv := reflect.ValueOf(val)
+	if rv.Kind() == reflect.Ptr {
+		rv = rv.Elem()
+	}
+	b.setInt64(sp+16, int64(rv.Len()))
+	fmt.Println("valueLength:", rv.Len())
 }
 
 //export valuePrepareString
 func valuePrepareString(ctx unsafe.Pointer, sp int32) {
-	log.Fatal("valuePrepareString")
+	b := getBridge(ctx)
+	val := b.loadValue(sp + 8)
+	var str string
+	if val != nil {
+		str = val.(string)
+	}
+
+	b.storeValue(sp+16, str)
+	b.setInt64(sp+24, int64(len(str)))
+	fmt.Println("valuePrepareString", val, str)
 }
 
 //export valueLoadString
 func valueLoadString(ctx unsafe.Pointer, sp int32) {
-	log.Fatal("valueLoadString")
+	panic("valueLoadString")
 }
 
 //export scheduleTimeoutEvent
 func scheduleTimeoutEvent(ctx unsafe.Pointer, sp int32) {
-	log.Fatal("scheduleTimeoutEvent")
+	panic("scheduleTimeoutEvent")
 }
 
 //export clearTimeoutEvent
 func clearTimeoutEvent(ctx unsafe.Pointer, sp int32) {
-	log.Fatal("clearTimeoutEvent")
+	panic("clearTimeoutEvent")
 }
 
 // addImports adds go Bridge imports in "go" namespace.
