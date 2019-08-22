@@ -2,7 +2,9 @@ package wasm
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -129,6 +131,12 @@ func (b *Bridge) addValues() {
 						}),
 					}}
 				}},
+				"crypto": propObject("crypto", map[string]interface{}{
+					"getRandomValues": Func(func(args []interface{}) (interface{}, error) {
+						arr := args[0].(*array)
+						return rand.Read(arr.data())
+					}),
+				}),
 				"fs": propObject("fs", map[string]interface{}{
 					"constants": propObject("constants", map[string]interface{}{
 						"O_WRONLY": syscall.O_WRONLY,
@@ -440,7 +448,7 @@ func (b *Bridge) makeFuncWrapper(id, this interface{}, args *[]interface{}) (int
 	b.valuesMu.RUnlock()
 	event := propObject("_pendingEvent", map[string]interface{}{
 		"id":   id,
-		"this": nil,
+		"this": goObj,
 		"args": args,
 	})
 
@@ -472,4 +480,22 @@ func (b *Bridge) SetFunc(fname string, fn Func) error {
 	defer b.valuesMu.RUnlock()
 	b.values[5].(*object).props[fname] = &fn
 	return nil
+}
+
+func Bytes(v interface{}) ([]byte, error) {
+	arr, ok := v.(*array)
+	if !ok {
+		return nil, fmt.Errorf("got %T instead of bytes", v)
+	}
+
+	return arr.data(), nil
+}
+
+func Error(v interface{}) (errVal error, err error) {
+	str, ok := v.(string)
+	if !ok {
+		return nil, fmt.Errorf("got %T instead of error", v)
+	}
+
+	return errors.New(str), nil
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 
 	"github.com/vedhavyas/go-wasm"
@@ -48,4 +49,27 @@ func main() {
 		panic(err)
 	}
 	log.Printf("Multiplier: %v\n", mul)
+
+	res, err := b.CallFunc("getBytes", nil)
+	if err != nil {
+		panic(err)
+	}
+
+	bytes, err := wasm.Bytes(res)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(bytes)
+
+	res, err = b.CallFunc("getError", nil)
+	if err != nil {
+		panic(err)
+	}
+
+	verr, err := wasm.Error(res)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println(verr)
 }
