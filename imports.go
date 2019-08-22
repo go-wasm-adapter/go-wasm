@@ -72,8 +72,8 @@ func nanotime(ctx unsafe.Pointer, sp int32) {
 func walltime(ctx unsafe.Pointer, sp int32) {
 	b := getBridge(ctx)
 	t := time.Now().UnixNano()
-	nanos := t % 1000000000
-	b.setInt64(sp+8, t/1000000000)
+	nanos := t % int64(time.Second)
+	b.setInt64(sp+8, t/int64(time.Second))
 	b.setInt32(sp+16, int32(nanos))
 
 }

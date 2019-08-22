@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 
 	"github.com/vedhavyas/go-wasm"
@@ -59,7 +58,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println(bytes)
+	log.Println(bytes)
 
 	res, err = b.CallFunc("getError", nil)
 	if err != nil {
@@ -71,5 +70,5 @@ func main() {
 		panic(err)
 	}
 
-	fmt.Println(verr)
+	log.Println(verr)
 }
