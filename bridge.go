@@ -1,8 +1,10 @@
 package wasm
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
+	"log"
 	"math"
 	"reflect"
 	"sync"
@@ -16,7 +18,7 @@ import (
 var undefined = &struct{}{}
 var bridges = map[string]*Bridge{}
 var mu sync.RWMutex // to protect bridges
-type context struct{ n string }
+type bctx struct{ n string }
 
 func getCtxData(b *Bridge) (unsafe.Pointer, error) {
 	mu.Lock()
@@ -26,12 +28,12 @@ func getCtxData(b *Bridge) (unsafe.Pointer, error) {
 	}
 
 	bridges[b.name] = b
-	return unsafe.Pointer(&context{n: b.name}), nil
+	return unsafe.Pointer(&bctx{n: b.name}), nil
 }
 
 func getBridge(ctx unsafe.Pointer) *Bridge {
 	ictx := wasmer.IntoInstanceContext(ctx)
-	c := (*context)(ictx.Data())
+	c := (*bctx)(ictx.Data())
 	mu.RLock()
 	defer mu.RUnlock()
 	return bridges[c.n]
@@ -40,12 +42,13 @@ func getBridge(ctx unsafe.Pointer) *Bridge {
 type Bridge struct {
 	name     string
 	instance wasmer.Instance
-	done     chan bool
 	exitCode int
 	values   []interface{}
+	valuesMu sync.RWMutex
 	refs     map[interface{}]int
 	memory   []byte
 	exited   bool
+	cancF    context.CancelFunc
 }
 
 func BridgeFromBytes(name string, bytes []byte, imports *wasmer.Imports) (*Bridge, error) {
@@ -175,11 +178,10 @@ func (b *Bridge) check() {
 }
 
 // Run start the wasm instance.
-func (b *Bridge) Run(init chan error, done chan bool) {
+func (b *Bridge) Run(ctx context.Context, init chan error) {
 	b.check()
 	defer b.instance.Close()
 
-	b.done = done
 	run := b.instance.Exports["run"]
 	_, err := run(0, 0)
 	if err != nil {
@@ -187,9 +189,15 @@ func (b *Bridge) Run(init chan error, done chan bool) {
 		return
 	}
 
+	ctx, cancF := context.WithCancel(ctx)
+	b.cancF = cancF
 	init <- nil
-	<-b.done
-	fmt.Printf("WASM exited with code: %v\n", b.exitCode)
+	select {
+	case <-ctx.Done():
+		log.Printf("stopping WASM[%s] instance...\n", b.name)
+		b.exited = true
+		return
+	}
 }
 
 func (b *Bridge) mem() []byte {
@@ -297,6 +305,9 @@ func (b *Bridge) loadValue(addr int32) interface{} {
 		return f
 	}
 
+	b.valuesMu.RLock()
+	defer b.valuesMu.RUnlock()
+
 	return b.values[b.getUint32(addr)]
 }
 
@@ -353,9 +364,11 @@ func (b *Bridge) storeValue(addr int32, v interface{}) {
 
 	ref, ok := b.refs[v]
 	if !ok {
+		b.valuesMu.RLock()
 		ref = len(b.values)
 		b.values = append(b.values, v)
 		b.refs[v] = ref
+		b.valuesMu.RUnlock()
 	}
 
 	typeFlag := 0
@@ -422,7 +435,9 @@ type funcWrapper struct {
 }
 
 func (b *Bridge) makeFuncWrapper(id, this interface{}, args *[]interface{}) (interface{}, error) {
+	b.valuesMu.RLock()
 	goObj := b.values[7].(*object)
+	b.valuesMu.RUnlock()
 	event := propObject("_pendingEvent", map[string]interface{}{
 		"id":   id,
 		"this": nil,
@@ -440,15 +455,21 @@ func (b *Bridge) makeFuncWrapper(id, this interface{}, args *[]interface{}) (int
 
 func (b *Bridge) CallFunc(fn string, args []interface{}) (interface{}, error) {
 	b.check()
+	b.valuesMu.RLock()
 	fw, ok := b.values[5].(*object).props[fn]
 	if !ok {
 		return nil, fmt.Errorf("missing function: %v", fn)
 	}
 
-	return b.makeFuncWrapper(fw.(*funcWrapper).id, b.values[7], &args)
+	this := b.values[7]
+	b.valuesMu.RUnlock()
+
+	return b.makeFuncWrapper(fw.(*funcWrapper).id, this, &args)
 }
 
 func (b *Bridge) SetFunc(fname string, fn Func) error {
+	b.valuesMu.RLock()
+	defer b.valuesMu.RUnlock()
 	b.values[5].(*object).props[fname] = &fn
 	return nil
 }

@@ -13,14 +13,18 @@ func addition(this js.Value, args []js.Value) interface{} {
 	return a + b
 }
 
+func multiplier(this js.Value, args []js.Value) interface{} {
+	return 10
+}
+
 func main() {
 	ch := make(chan bool)
 
 	// register functions
-	fun := js.FuncOf(addition)
-	js.Global().Set("addition", fun)
+	js.Global().Set("addition", js.FuncOf(addition))
+	js.Global().Set("multiplier", js.FuncOf(multiplier))
 
-	res := js.Global().Get("proxy").Invoke(1, 2)
+	res := js.Global().Get("addProxy").Invoke(1, 2)
 	log.Printf("1 + 2 = %d\n", res.Int())
 	<-ch
 }

@@ -29,6 +29,7 @@ import "C"
 import (
 	"crypto/rand"
 	"fmt"
+	"log"
 	"reflect"
 	"syscall"
 	"time"
@@ -38,16 +39,15 @@ import (
 )
 
 //export debug
-func debug(ctx unsafe.Pointer, sp int32) {
-	fmt.Println(sp)
+func debug(_ unsafe.Pointer, sp int32) {
+	log.Println(sp)
 }
 
 //export wexit
 func wexit(ctx unsafe.Pointer, sp int32) {
 	b := getBridge(ctx)
 	b.exitCode = int(b.getUint32(sp + 8))
-	b.exited = true
-	close(b.done)
+	b.cancF()
 }
 
 //export wwrite
@@ -56,7 +56,10 @@ func wwrite(ctx unsafe.Pointer, sp int32) {
 	fd := int(b.getInt64(sp + 8))
 	p := int(b.getInt64(sp + 16))
 	l := int(b.getInt32(sp + 24))
-	syscall.Write(fd, b.mem()[p:p+l])
+	_, err := syscall.Write(fd, b.mem()[p:p+l])
+	if err != nil {
+		panic(fmt.Errorf("wasm-write: %v", err))
+	}
 }
 
 //export nanotime
@@ -76,12 +79,12 @@ func walltime(ctx unsafe.Pointer, sp int32) {
 }
 
 //export scheduleCallback
-func scheduleCallback(ctx unsafe.Pointer, sp int32) {
+func scheduleCallback(_ unsafe.Pointer, _ int32) {
 	panic("schedule callback")
 }
 
 //export clearScheduledCallback
-func clearScheduledCallback(ctx unsafe.Pointer, sp int32) {
+func clearScheduledCallback(_ unsafe.Pointer, _ int32) {
 	panic("clear scheduled callback")
 }
 
@@ -89,7 +92,6 @@ func clearScheduledCallback(ctx unsafe.Pointer, sp int32) {
 func getRandomData(ctx unsafe.Pointer, sp int32) {
 	s := getBridge(ctx).loadSlice(sp + 8)
 	_, err := rand.Read(s)
-	// TODO how to pass error?
 	if err != nil {
 		panic("failed: getRandomData")
 	}
@@ -146,7 +148,7 @@ func valueIndex(ctx unsafe.Pointer, sp int32) {
 }
 
 //export valueSetIndex
-func valueSetIndex(ctx unsafe.Pointer, sp int32) {
+func valueSetIndex(_ unsafe.Pointer, _ int32) {
 	panic("valueSetIndex")
 }
 
@@ -234,12 +236,12 @@ func valueLoadString(ctx unsafe.Pointer, sp int32) {
 }
 
 //export scheduleTimeoutEvent
-func scheduleTimeoutEvent(ctx unsafe.Pointer, sp int32) {
+func scheduleTimeoutEvent(_ unsafe.Pointer, _ int32) {
 	panic("scheduleTimeoutEvent")
 }
 
 //export clearTimeoutEvent
-func clearTimeoutEvent(ctx unsafe.Pointer, sp int32) {
+func clearTimeoutEvent(_ unsafe.Pointer, _ int32) {
 	panic("clearTimeoutEvent")
 }
 
