@@ -502,3 +502,17 @@ func Error(v interface{}) (errVal error, err error) {
 
 	return errors.New(str), nil
 }
+
+func UintArray(v interface{}) *[]uint {
+	rv := reflect.ValueOf(v)
+	if rv.Kind() != reflect.Slice {
+		panic("not a slice")
+	}
+
+	buf := make([]uint, rv.Len(), rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		buf[i] = uint(rv.Index(i).Uint())
+	}
+
+	return &buf
+}

@@ -7,6 +7,8 @@ import (
 	"errors"
 	"log"
 	"syscall/js"
+
+	"github.com/vedhavyas/go-wasm/go-converts"
 )
 
 func addition(this js.Value, args []js.Value) interface{} {
@@ -33,6 +35,12 @@ func getError(this js.Value, args []js.Value) interface{} {
 	return err.Error()
 }
 
+func receiveSendBytes(this js.Value, args []js.Value) interface{} {
+	b := args[0]
+	buf := converts.ToBytes(b)
+	return js.TypedArrayOf(buf)
+}
+
 func main() {
 	ch := make(chan bool)
 
@@ -41,6 +49,7 @@ func main() {
 	js.Global().Set("multiplier", js.FuncOf(multiplier))
 	js.Global().Set("getBytes", js.FuncOf(getBytes))
 	js.Global().Set("getError", js.FuncOf(getError))
+	js.Global().Set("bytes", js.FuncOf(receiveSendBytes))
 
 	res := js.Global().Get("addProxy").Invoke(1, 2)
 	log.Printf("1 + 2 = %d\n", res.Int())

@@ -60,15 +60,15 @@ func main() {
 	}
 	log.Println(bytes)
 
-	res, err = b.CallFunc("getError", nil)
+	res, err = b.CallFunc("bytes", []interface{}{wasm.UintArray(bytes)})
 	if err != nil {
 		panic(err)
 	}
 
-	verr, err := wasm.Error(res)
+	nb, err := wasm.Bytes(res)
 	if err != nil {
 		panic(err)
 	}
 
-	log.Println(verr)
+	log.Println(nb)
 }
