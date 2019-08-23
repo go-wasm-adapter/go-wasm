@@ -109,14 +109,14 @@ func (b *Bridge) addValues() {
 			props: map[string]interface{}{
 				"Object":       propObject("Object", nil),
 				"Array":        propObject("Array", nil),
-				"Int8Array":    typedArray("Int8Array"),
-				"Int16Array":   typedArray("Int16Array"),
-				"Int32Array":   typedArray("Int32Array"),
-				"Uint8Array":   typedArray("Uint8Array"),
-				"Uint16Array":  typedArray("Uint16Array"),
-				"Uint32Array":  typedArray("Uint32Array"),
-				"Float32Array": typedArray("Float32Array"),
-				"Float64Array": typedArray("Float64Array"),
+				"Int8Array":    typedArray,
+				"Int16Array":   typedArray,
+				"Int32Array":   typedArray,
+				"Uint8Array":   typedArray,
+				"Uint16Array":  typedArray,
+				"Uint32Array":  typedArray,
+				"Float32Array": typedArray,
+				"Float64Array": typedArray,
 				"process":      propObject("process", nil),
 				"Date": &object{name: "Date", new: func(args []interface{}) interface{} {
 					t := time.Now()
@@ -366,6 +366,10 @@ func (b *Bridge) storeValue(addr int32, v interface{}) {
 	}
 
 	rv := reflect.TypeOf(v)
+	if !rv.Comparable() {
+		panic(fmt.Sprintf("%T is not comparable", v))
+	}
+
 	if rv.Kind() == reflect.Ptr {
 		rv = rv.Elem()
 	}
@@ -413,17 +417,16 @@ type array struct {
 func (a *array) data() []byte {
 	return a.buf.data[a.offset : a.offset+a.length]
 }
-func typedArray(name string) *object {
-	return &object{
-		name: name,
-		new: func(args []interface{}) interface{} {
-			return &array{
-				buf:    args[0].(*buffer),
-				offset: int(args[1].(float64)),
-				length: int(args[2].(float64)),
-			}
-		},
-	}
+
+var typedArray = &object{
+	name: "TypedArray",
+	new: func(args []interface{}) interface{} {
+		return &array{
+			buf:    args[0].(*buffer),
+			offset: int(args[1].(float64)),
+			length: int(args[2].(float64)),
+		}
+	},
 }
 
 type buffer struct {
