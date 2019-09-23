@@ -156,13 +156,19 @@ func valueSetIndex(_ unsafe.Pointer, _ int32) {
 func valueCall(ctx unsafe.Pointer, sp int32) {
 	b := getBridge(ctx)
 	v := b.loadValue(sp + 8)
+	var f Func
+	var args []interface{}
 	str := b.loadString(sp + 16)
-	args := b.loadSliceOfValues(sp + 32)
-	f, ok := v.(*object).props[str].(Func)
-	if !ok {
-		panic(fmt.Sprintln("valueCall: prop not found in ", v, str))
+	if str == release_call {
+		f = b.releaseFunc(v)
+	} else {
+		args = b.loadSliceOfValues(sp + 32)
+		var ok bool
+		f, ok = v.(*object).props[str].(Func)
+		if !ok {
+			panic(fmt.Sprintln("valueCall: prop not found in ", v, str))
+		}
 	}
-
 	sp = b.getSP()
 	res, err := f(args)
 	if err != nil {

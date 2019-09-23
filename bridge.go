@@ -18,9 +18,14 @@ import (
 	"github.com/wasmerio/go-ext-wasm/wasmer"
 )
 
-var undefined = &struct{}{}
-var bridges = map[string]*Bridge{}
-var mu sync.RWMutex // to protect bridges
+const release_call = "_release_"
+
+var (
+	undefined = &struct{}{}
+	bridges   = map[string]*Bridge{}
+	mu        sync.RWMutex // to protect bridges
+)
+
 type bctx struct{ n string }
 
 func getCtxData(b *Bridge) (unsafe.Pointer, error) {
@@ -53,6 +58,30 @@ type Bridge struct {
 	memory   []byte
 	exited   bool
 	cancF    context.CancelFunc
+}
+
+// releaseRef removes the ref from the refs.
+// Returns the  idx and true if remove was successful.
+func (b *Bridge) releaseRef(v interface{}) (int, bool) {
+	idx, ok := b.refs[v]
+	if !ok {
+		return 0, false
+	}
+
+	delete(b.refs, v)
+	return idx, true
+}
+
+// releaseVal removes val from the valueMap
+// Returns the value and true if remove was successful
+func (b *Bridge) releaseVal(idx int) (interface{}, bool) {
+	v, ok := b.valueMap[idx]
+	if !ok {
+		return nil, false
+	}
+
+	delete(b.valueMap, idx)
+	return v, true
 }
 
 func BridgeFromBytes(name string, bytes []byte, imports *wasmer.Imports) (*Bridge, error) {
@@ -511,6 +540,21 @@ func (b *Bridge) SetFunc(fname string, fn Func) error {
 	defer b.valuesMu.RUnlock()
 	b.valueMap[5].(*object).props[fname] = &fn
 	return nil
+}
+
+func (b *Bridge) releaseFunc(v interface{}) Func {
+	return Func(func(args []interface{}) (interface{}, error) {
+		b.valuesMu.Lock()
+		defer b.valuesMu.Unlock()
+
+		idx, ok := b.releaseRef(v)
+		if !ok {
+			return nil, nil
+		}
+
+		b.releaseVal(idx)
+		return nil, nil
+	})
 }
 
 func Bytes(v interface{}) ([]byte, error) {
