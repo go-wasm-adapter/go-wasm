@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	b, err := wasm.BridgeFromFile("test", "./examples/http/main.wasm", nil)
+	b, err := wasm.BridgeFromFile("test", "./examples/http-wasm/main.wasm", nil)
 	if err != nil {
 		panic(err)
 	}
