@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"net/http"
 	"reflect"
 	"sync"
 	"syscall"
@@ -107,7 +108,9 @@ func (b *Bridge) addValues() {
 		false,
 		&object{
 			props: map[string]interface{}{
-				"Object":       propObject("Object", nil),
+				"Object": &object{name: "Object", new: func(args []interface{}) interface{} {
+					return &object{name: "ObjectInner", props: map[string]interface{}{}}
+				}},
 				"Array":        propObject("Array", nil),
 				"Int8Array":    typedArray,
 				"Int16Array":   typedArray,
@@ -136,6 +139,28 @@ func (b *Bridge) addValues() {
 						arr := args[0].(*array)
 						return rand.Read(arr.data())
 					}),
+				}),
+				"AbortController": &object{name: "AbortController", new: func(args []interface{}) interface{} {
+					return &object{name: "AbortControllerInner", props: map[string]interface{}{
+						"signal": propObject("signal", map[string]interface{}{}),
+					}}
+				}},
+				"Headers": &object{name: "Headers", new: func(args []interface{}) interface{} {
+					headers := http.Header{}
+					obj := &object{name: "HeadersInner", props: map[string]interface{}{
+						"headers": headers,
+						"append": Func(func(args []interface{}) (interface{}, error) {
+							headers.Add(args[0].(string), args[1].(string))
+							return nil, nil
+						}),
+					}}
+
+					return obj
+				}},
+				"fetch": Func(func(args []interface{}) (interface{}, error) {
+					// TODO(ved): implement fetch
+					log.Fatalln(args)
+					return nil, nil
 				}),
 				"fs": propObject("fs", map[string]interface{}{
 					"constants": propObject("constants", map[string]interface{}{
@@ -492,6 +517,15 @@ func Bytes(v interface{}) ([]byte, error) {
 	}
 
 	return arr.data(), nil
+}
+
+func String(v interface{}) (string, error) {
+	str, ok := v.(string)
+	if !ok {
+		return "", fmt.Errorf("got %t instead of string", v)
+	}
+
+	return str, nil
 }
 
 func Error(v interface{}) (errVal error, err error) {
