@@ -46,9 +46,10 @@ type Bridge struct {
 	name     string
 	instance wasmer.Instance
 	exitCode int
-	values   []interface{}
-	valuesMu sync.RWMutex
+	valueIDX int
+	valueMap map[int]interface{}
 	refs     map[interface{}]int
+	valuesMu sync.RWMutex
 	memory   []byte
 	exited   bool
 	cancF    context.CancelFunc
@@ -80,6 +81,7 @@ func BridgeFromBytes(name string, bytes []byte, imports *wasmer.Imports) (*Bridg
 	inst.SetContextData(ctx)
 	b.addValues()
 	b.refs = make(map[interface{}]int)
+	b.valueIDX = 8
 	return b, nil
 }
 
@@ -100,13 +102,13 @@ func (b *Bridge) addValues() {
 		}),
 		"_pendingEvent": nil,
 	})
-	b.values = []interface{}{
-		math.NaN(),
-		float64(0),
-		nil,
-		true,
-		false,
-		&object{
+	b.valueMap = map[int]interface{}{
+		0: math.NaN(),
+		1: float64(0),
+		2: nil,
+		3: true,
+		4: false,
+		5: &object{
 			props: map[string]interface{}{
 				"Object": &object{name: "Object", new: func(args []interface{}) interface{} {
 					return &object{name: "ObjectInner", props: map[string]interface{}{}}
@@ -197,10 +199,10 @@ func (b *Bridge) addValues() {
 				}),
 			},
 		}, //global
-		propObject("mem", map[string]interface{}{
+		6: propObject("mem", map[string]interface{}{
 			"buffer": &buffer{data: b.mem()}},
 		),
-		goObj, // jsGo
+		7: goObj, // jsGo
 	}
 }
 
@@ -341,7 +343,7 @@ func (b *Bridge) loadValue(addr int32) interface{} {
 	b.valuesMu.RLock()
 	defer b.valuesMu.RUnlock()
 
-	return b.values[b.getUint32(addr)]
+	return b.valueMap[int(b.getUint32(addr))]
 }
 
 func (b *Bridge) storeValue(addr int32, v interface{}) {
@@ -402,9 +404,10 @@ func (b *Bridge) storeValue(addr int32, v interface{}) {
 	ref, ok := b.refs[v]
 	if !ok {
 		b.valuesMu.RLock()
-		ref = len(b.values)
-		b.values = append(b.values, v)
+		b.valueMap[b.valueIDX] = v
+		ref = b.valueIDX
 		b.refs[v] = ref
+		b.valueIDX++
 		b.valuesMu.RUnlock()
 	}
 
@@ -472,7 +475,7 @@ type funcWrapper struct {
 
 func (b *Bridge) makeFuncWrapper(id, this interface{}, args *[]interface{}) (interface{}, error) {
 	b.valuesMu.RLock()
-	goObj := b.values[7].(*object)
+	goObj := b.valueMap[7].(*object)
 	b.valuesMu.RUnlock()
 	event := propObject("_pendingEvent", map[string]interface{}{
 		"id":   id,
@@ -492,12 +495,12 @@ func (b *Bridge) makeFuncWrapper(id, this interface{}, args *[]interface{}) (int
 func (b *Bridge) CallFunc(fn string, args []interface{}) (interface{}, error) {
 	b.check()
 	b.valuesMu.RLock()
-	fw, ok := b.values[5].(*object).props[fn]
+	fw, ok := b.valueMap[5].(*object).props[fn]
 	if !ok {
 		return nil, fmt.Errorf("missing function: %v", fn)
 	}
 
-	this := b.values[7]
+	this := b.valueMap[7]
 	b.valuesMu.RUnlock()
 
 	return b.makeFuncWrapper(fw.(*funcWrapper).id, this, &args)
@@ -506,7 +509,7 @@ func (b *Bridge) CallFunc(fn string, args []interface{}) (interface{}, error) {
 func (b *Bridge) SetFunc(fname string, fn Func) error {
 	b.valuesMu.RLock()
 	defer b.valuesMu.RUnlock()
-	b.values[5].(*object).props[fname] = &fn
+	b.valueMap[5].(*object).props[fname] = &fn
 	return nil
 }
 
