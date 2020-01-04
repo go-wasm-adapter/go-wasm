@@ -28,7 +28,7 @@ var (
 
 type bctx struct{ n string }
 
-func getCtxData(b *Bridge) (unsafe.Pointer, error) {
+func getCtxData(b *Bridge) (*bctx, error) {
 	mu.Lock()
 	defer mu.Unlock()
 	if _, ok := bridges[b.name]; ok {
@@ -36,12 +36,12 @@ func getCtxData(b *Bridge) (unsafe.Pointer, error) {
 	}
 
 	bridges[b.name] = b
-	return unsafe.Pointer(&bctx{n: b.name}), nil
+	return &bctx{n: b.name}, nil
 }
 
 func getBridge(ctx unsafe.Pointer) *Bridge {
 	ictx := wasmer.IntoInstanceContext(ctx)
-	c := (*bctx)((ictx.Data()).(unsafe.Pointer))
+	c := (ictx.Data()).(*bctx)
 	mu.RLock()
 	defer mu.RUnlock()
 	return bridges[c.n]
