@@ -41,7 +41,7 @@ func getCtxData(b *Bridge) (unsafe.Pointer, error) {
 
 func getBridge(ctx unsafe.Pointer) *Bridge {
 	ictx := wasmer.IntoInstanceContext(ctx)
-	c := (*bctx)(ictx.Data())
+	c := (*bctx)((ictx.Data()).(unsafe.Pointer))
 	mu.RLock()
 	defer mu.RUnlock()
 	return bridges[c.n]
