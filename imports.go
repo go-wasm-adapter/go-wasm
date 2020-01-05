@@ -24,6 +24,8 @@ extern void valuePrepareString(void *context, int32_t a);
 extern void valueLoadString(void *context, int32_t a);
 extern void scheduleTimeoutEvent(void *context, int32_t a);
 extern void clearTimeoutEvent(void *context, int32_t a);
+extern void copyBytesToGo (void *context, int32_t a);
+extern void copyBytesToJS (void *context, int32_t a);
 */
 import "C"
 import (
@@ -156,18 +158,11 @@ func valueSetIndex(_ unsafe.Pointer, _ int32) {
 func valueCall(ctx unsafe.Pointer, sp int32) {
 	b := getBridge(ctx)
 	v := b.loadValue(sp + 8)
-	var f Func
-	var args []interface{}
 	str := b.loadString(sp + 16)
-	if str == release_call {
-		f = b.releaseFunc(v)
-	} else {
-		args = b.loadSliceOfValues(sp + 32)
-		var ok bool
-		f, ok = v.(*object).props[str].(Func)
-		if !ok {
-			panic(fmt.Sprintln("valueCall: prop not found in ", v, str))
-		}
+	args := b.loadSliceOfValues(sp + 32)
+	f, ok := v.(*object).props[str].(Func)
+	if !ok {
+		panic(fmt.Sprintf("valueCall: prop not found in %v, %s", v.(*object).name, str))
 	}
 	sp = b.getSP()
 	res, err := f(args)
@@ -217,7 +212,17 @@ func valueLength(ctx unsafe.Pointer, sp int32) {
 	if rv.Kind() == reflect.Ptr {
 		rv = rv.Elem()
 	}
-	b.setInt64(sp+16, int64(rv.Len()))
+	var l int
+	switch {
+	case rv.Kind() == reflect.Slice:
+		l = rv.Len()
+	case rv.Type() == reflect.TypeOf(array{}):
+		l = len(val.(*array).buf)
+	default:
+		panic(fmt.Sprintf("valueLength on %T", val))
+	}
+
+	b.setInt64(sp+16, int64(l))
 }
 
 //export valuePrepareString
@@ -251,6 +256,34 @@ func clearTimeoutEvent(_ unsafe.Pointer, _ int32) {
 	panic("clearTimeoutEvent")
 }
 
+//export copyBytesToJS
+func copyBytesToJS(ctx unsafe.Pointer, sp int32) {
+	b := getBridge(ctx)
+	dst, ok := b.loadValue(sp + 8).(*array)
+	if !ok {
+		b.setUint8(sp+48, 0)
+		return
+	}
+	src := b.loadSlice(sp + 16)
+	n := copy(dst.buf, src[:len(dst.buf)])
+	b.setInt64(sp+40, int64(n))
+	b.setUint8(sp+48, 1)
+}
+
+//export copyBytesToGo
+func copyBytesToGo(ctx unsafe.Pointer, sp int32) {
+	b := getBridge(ctx)
+	dst := b.loadSlice(sp + 8)
+	src, ok := b.loadValue(sp + 32).(*array)
+	if !ok {
+		b.setUint8(sp+48, 0)
+		return
+	}
+	n := copy(dst, src.buf[:len(dst)])
+	b.setInt64(sp+40, int64(n))
+	b.setUint8(sp+48, 1)
+}
+
 // addImports adds go Bridge imports in "go" namespace.
 func (b *Bridge) addImports(imps *wasmer.Imports) error {
 	imps = imps.Namespace("go")
@@ -280,6 +313,8 @@ func (b *Bridge) addImports(imps *wasmer.Imports) error {
 		{"syscall/js.valueLength", valueLength, C.valueLength},
 		{"syscall/js.valuePrepareString", valuePrepareString, C.valuePrepareString},
 		{"syscall/js.valueLoadString", valueLoadString, C.valueLoadString},
+		{"syscall/js.copyBytesToGo", copyBytesToGo, C.copyBytesToGo},
+		{"syscall/js.copyBytesToJS", copyBytesToJS, C.copyBytesToJS},
 	}
 
 	var err error

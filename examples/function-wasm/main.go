@@ -7,8 +7,6 @@ import (
 	"errors"
 	"log"
 	"syscall/js"
-
-	"github.com/vedhavyas/go-wasm/go-converts"
 )
 
 func addition(this js.Value, args []js.Value) interface{} {
@@ -27,7 +25,10 @@ func getBytes(this js.Value, args []js.Value) interface{} {
 	if err != nil {
 		panic(err)
 	}
-	return js.TypedArrayOf(r)
+
+	v := js.Global().Get("Uint8Array").New(len(r))
+	js.CopyBytesToJS(v, r)
+	return v
 }
 
 func getError(this js.Value, args []js.Value) interface{} {
@@ -37,8 +38,11 @@ func getError(this js.Value, args []js.Value) interface{} {
 
 func receiveSendBytes(this js.Value, args []js.Value) interface{} {
 	b := args[0]
-	buf := converts.ToBytes(b)
-	return js.TypedArrayOf(buf)
+	buf := make([]byte, b.Length(), b.Length())
+	js.CopyBytesToGo(buf, b)
+	v := js.Global().Get("Uint8Array").New(len(buf))
+	js.CopyBytesToJS(v, buf)
+	return v
 }
 
 func main() {
