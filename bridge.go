@@ -116,8 +116,8 @@ func (b *Bridge) addValues() {
 				"Object": &object{name: "Object", new: func(args []interface{}) interface{} {
 					return &object{name: "ObjectInner", props: map[string]interface{}{}}
 				}},
-				"Array":      propObject("Array", nil),
-				"Uint8Array": typedArray,
+				"Array":      arrayObject("Array"),
+				"Uint8Array": arrayObject("Uint8Array"),
 				"process":    propObject("process", nil),
 				"Date": &object{name: "Date", new: func(args []interface{}) interface{} {
 					t := time.Now()
@@ -432,14 +432,16 @@ type array struct {
 	buf []byte
 }
 
-var typedArray = &object{
-	name: "TypedArray",
-	new: func(args []interface{}) interface{} {
-		l := int(args[0].(float64))
-		return &array{
-			buf: make([]byte, l, l),
-		}
-	},
+func arrayObject(name string) *object {
+	return &object{
+		name: name,
+		new: func(args []interface{}) interface{} {
+			l := int(args[0].(float64))
+			return &array{
+				buf: make([]byte, l, l),
+			}
+		},
+	}
 }
 
 // TODO make this a wrapper that takes an inner `this` js object
