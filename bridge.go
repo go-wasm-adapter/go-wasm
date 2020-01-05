@@ -18,8 +18,6 @@ import (
 	"github.com/wasmerio/go-ext-wasm/wasmer"
 )
 
-const release_call = "_release_"
-
 var (
 	undefined = &struct{}{}
 	bridges   = map[string]*Bridge{}
@@ -58,30 +56,6 @@ type Bridge struct {
 	memory   []byte
 	exited   bool
 	cancF    context.CancelFunc
-}
-
-// releaseRef removes the ref from the refs.
-// Returns the  idx and true if remove was successful.
-func (b *Bridge) releaseRef(v interface{}) (int, bool) {
-	idx, ok := b.refs[v]
-	if !ok {
-		return 0, false
-	}
-
-	delete(b.refs, v)
-	return idx, true
-}
-
-// releaseVal removes val from the valueMap
-// Returns the value and true if remove was successful
-func (b *Bridge) releaseVal(idx int) (interface{}, bool) {
-	v, ok := b.valueMap[idx]
-	if !ok {
-		return nil, false
-	}
-
-	delete(b.valueMap, idx)
-	return v, true
 }
 
 func BridgeFromBytes(name string, bytes []byte, imports *wasmer.Imports) (*Bridge, error) {
@@ -142,16 +116,9 @@ func (b *Bridge) addValues() {
 				"Object": &object{name: "Object", new: func(args []interface{}) interface{} {
 					return &object{name: "ObjectInner", props: map[string]interface{}{}}
 				}},
-				"Array":        propObject("Array", nil),
-				"Int8Array":    typedArray,
-				"Int16Array":   typedArray,
-				"Int32Array":   typedArray,
-				"Uint8Array":   typedArray,
-				"Uint16Array":  typedArray,
-				"Uint32Array":  typedArray,
-				"Float32Array": typedArray,
-				"Float64Array": typedArray,
-				"process":      propObject("process", nil),
+				"Array":      arrayObject("Array"),
+				"Uint8Array": arrayObject("Uint8Array"),
+				"process":    propObject("process", nil),
 				"Date": &object{name: "Date", new: func(args []interface{}) interface{} {
 					t := time.Now()
 					return &object{name: "DateInner", props: map[string]interface{}{
@@ -168,7 +135,7 @@ func (b *Bridge) addValues() {
 				"crypto": propObject("crypto", map[string]interface{}{
 					"getRandomValues": Func(func(args []interface{}) (interface{}, error) {
 						arr := args[0].(*array)
-						return rand.Read(arr.data())
+						return rand.Read(arr.buf)
 					}),
 				}),
 				"AbortController": &object{name: "AbortController", new: func(args []interface{}) interface{} {
@@ -189,7 +156,7 @@ func (b *Bridge) addValues() {
 					return obj
 				}},
 				"fetch": Func(func(args []interface{}) (interface{}, error) {
-					// TODO(ved): implement fetch
+					// Fixme(ved): implement fetch
 					log.Fatalln(args)
 					return nil, nil
 				}),
@@ -207,7 +174,7 @@ func (b *Bridge) addValues() {
 						fd := int(args[0].(float64))
 						offset := int(args[2].(float64))
 						length := int(args[3].(float64))
-						buf := args[1].(*array).data()[offset : offset+length]
+						buf := args[1].(*array).buf[offset : offset+length]
 						pos := args[4]
 						callback := args[5].(*funcWrapper)
 						var err error
@@ -228,10 +195,7 @@ func (b *Bridge) addValues() {
 				}),
 			},
 		}, //global
-		6: propObject("mem", map[string]interface{}{
-			"buffer": &buffer{data: b.mem()}},
-		),
-		7: goObj, // jsGo
+		6: goObj, // jsGo
 	}
 }
 
@@ -421,35 +385,34 @@ func (b *Bridge) storeValue(addr int32, v interface{}) {
 		return
 	}
 
-	rv := reflect.TypeOf(v)
-	if !rv.Comparable() {
-		panic(fmt.Sprintf("%T is not comparable", v))
+	rt := reflect.TypeOf(v)
+	if rt.Kind() == reflect.Ptr {
+		rt = rt.Elem()
 	}
 
-	if rv.Kind() == reflect.Ptr {
-		rv = rv.Elem()
+	rv := v
+	if !rt.Comparable() {
+		// since some types like Func cant be set as key, we will use their reflect value
+		// as key to insert for refs[key] so that we can avoid any duplicates
+		rv = reflect.ValueOf(v)
 	}
 
-	ref, ok := b.refs[v]
+	ref, ok := b.refs[rv]
 	if !ok {
 		b.valuesMu.RLock()
 		b.valueMap[b.valueIDX] = v
 		ref = b.valueIDX
-		b.refs[v] = ref
+		b.refs[rv] = ref
 		b.valueIDX++
 		b.valuesMu.RUnlock()
 	}
 
 	typeFlag := 0
-	switch rv.Kind() {
+	switch rt.Kind() {
 	case reflect.String:
 		typeFlag = 1
-	case reflect.Struct, reflect.Slice:
-		typeFlag = 2
 	case reflect.Func:
 		typeFlag = 3
-	default:
-		panic(fmt.Sprintf("unknown type: %T", v))
 	}
 	b.setUint32(addr+4, uint32(nanHead|typeFlag))
 	b.setUint32(addr, uint32(ref))
@@ -466,30 +429,22 @@ func propObject(name string, prop map[string]interface{}) *object {
 }
 
 type array struct {
-	buf    *buffer
-	offset int
-	length int
+	buf []byte
 }
 
-func (a *array) data() []byte {
-	return a.buf.data[a.offset : a.offset+a.length]
+func arrayObject(name string) *object {
+	return &object{
+		name: name,
+		new: func(args []interface{}) interface{} {
+			l := int(args[0].(float64))
+			return &array{
+				buf: make([]byte, l, l),
+			}
+		},
+	}
 }
 
-var typedArray = &object{
-	name: "TypedArray",
-	new: func(args []interface{}) interface{} {
-		return &array{
-			buf:    args[0].(*buffer),
-			offset: int(args[1].(float64)),
-			length: int(args[2].(float64)),
-		}
-	},
-}
-
-type buffer struct {
-	data []byte
-}
-
+// TODO make this a wrapper that takes an inner `this` js object
 type Func func(args []interface{}) (interface{}, error)
 
 func (b *Bridge) resume() error {
@@ -503,9 +458,7 @@ type funcWrapper struct {
 }
 
 func (b *Bridge) makeFuncWrapper(id, this interface{}, args *[]interface{}) (interface{}, error) {
-	b.valuesMu.RLock()
-	goObj := b.valueMap[7].(*object)
-	b.valuesMu.RUnlock()
+	goObj := this.(*object)
 	event := propObject("_pendingEvent", map[string]interface{}{
 		"id":   id,
 		"this": goObj,
@@ -528,10 +481,8 @@ func (b *Bridge) CallFunc(fn string, args []interface{}) (interface{}, error) {
 	if !ok {
 		return nil, fmt.Errorf("missing function: %v", fn)
 	}
-
-	this := b.valueMap[7]
+	this := b.valueMap[6]
 	b.valuesMu.RUnlock()
-
 	return b.makeFuncWrapper(fw.(*funcWrapper).id, this, &args)
 }
 
@@ -542,28 +493,13 @@ func (b *Bridge) SetFunc(fname string, fn Func) error {
 	return nil
 }
 
-func (b *Bridge) releaseFunc(v interface{}) Func {
-	return Func(func(args []interface{}) (interface{}, error) {
-		b.valuesMu.Lock()
-		defer b.valuesMu.Unlock()
-
-		idx, ok := b.releaseRef(v)
-		if !ok {
-			return nil, nil
-		}
-
-		b.releaseVal(idx)
-		return nil, nil
-	})
-}
-
 func Bytes(v interface{}) ([]byte, error) {
 	arr, ok := v.(*array)
 	if !ok {
 		return nil, fmt.Errorf("got %T instead of bytes", v)
 	}
 
-	return arr.data(), nil
+	return arr.buf, nil
 }
 
 func String(v interface{}) (string, error) {
@@ -575,7 +511,7 @@ func String(v interface{}) (string, error) {
 	return str, nil
 }
 
-func Error(v interface{}) (errVal error, err error) {
+func Error(v interface{}) (errVal, err error) {
 	str, ok := v.(string)
 	if !ok {
 		return nil, fmt.Errorf("got %T instead of error", v)
@@ -584,16 +520,8 @@ func Error(v interface{}) (errVal error, err error) {
 	return errors.New(str), nil
 }
 
-func UintArray(v interface{}) *[]uint {
-	rv := reflect.ValueOf(v)
-	if rv.Kind() != reflect.Slice {
-		panic("not a slice")
-	}
-
-	buf := make([]uint, rv.Len(), rv.Len())
-	for i := 0; i < rv.Len(); i++ {
-		buf[i] = uint(rv.Index(i).Uint())
-	}
-
-	return &buf
+func FromBytes(v []byte) interface{} {
+	buf := make([]byte, len(v), len(v))
+	copy(buf, v)
+	return &array{buf: buf}
 }
