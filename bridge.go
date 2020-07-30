@@ -194,7 +194,7 @@ func (b *Bridge) addValues() {
 					}),
 				}),
 			},
-		}, //global
+		}, // global
 		6: goObj, // jsGo
 	}
 }
